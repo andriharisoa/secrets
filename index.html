@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Les secrets</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gray-100 p-6">
+
+  <!-- Formulaire de connexion et de configuration de l'API -->
+  <div id="authSection" class="max-w-4xl mx-auto mb-6">
+    <h1 class="text-5xl font-bold mb-6 text-center text-red-600 dark:text-red-900 
+               animate-pulse shadow-2xl transform transition-all duration-500">👀 Les secrets 👻</h1>
+
+    <!-- Formulaire de connexion -->
+    <form id="authForm" class="flex flex-col gap-4 mb-4">
+      <input id="apiUrlInput" type="url" placeholder="Entrez l'URL de l'API" class="p-2 border rounded" required />
+      <input id="emailInput" type="email" placeholder="Email" class="p-2 border rounded" required />
+      <input id="passwordInput" type="password" placeholder="Mot de passe" class="p-2 border rounded" required />
+      <label>
+        <input type="checkbox" id="saveLogin" class="mr-2"> Enregistrer les informations
+      </label>
+      <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Se connecter</button>
+    </form>
+  </div>
+
+  <!-- Container principal pour l'affichage des rapports -->
+  <div id="mainContent" class="max-w-4xl mx-auto hidden">
+    <form id="reportForm" class="flex gap-4 mb-4">
+      <input id="reportIdInput" type="number" min="1" placeholder="Entrer un ID de rapport" class="flex-1 p-2 border rounded" />
+      <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Afficher</button>
+    </form>
+
+    <!-- Boutons -->
+    <div class="flex gap-4 mb-6">
+      <button onclick="fetchAllReports()" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
+        Tous les rapports
+      </button>
+      <button onclick="fetchLatestReport()" class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">
+        Rapport le plus récent
+      </button>
+      <button onclick="logout()" class="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700">
+        Déconnexion
+      </button>
+    </div>
+
+    <!-- Spinner de chargement -->
+    <div id="loadingSpinner" class="hidden absolute inset-0 flex justify-center items-center bg-gray-500 bg-opacity-50">
+      <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-blue-600"></div>
+    </div>
+
+    <!-- Container des rapports -->
+    <div id="reportsContainer" class="space-y-6"></div>
+  </div>
+
+  <script>
+    let apiUrl = '';
+    let authToken = '';
+
+    // Affichage du formulaire de connexion au chargement
+    const authSection = document.getElementById('authSection');
+    const mainContent = document.getElementById('mainContent');
+
+    // Vérifier si les informations de connexion sont déjà dans le localStorage
+    const storedApiUrl = localStorage.getItem('apiUrl');
+    const storedEmail = localStorage.getItem('email');
+    const storedPassword = localStorage.getItem('password');
+    const storedToken = localStorage.getItem('authToken');
+
+    if (storedApiUrl && storedEmail && storedPassword && storedToken) {
+      apiUrl = storedApiUrl;
+      authToken = storedToken;
+      authSection.classList.add('hidden');
+      mainContent.classList.remove('hidden');
+    }
+
+    // Connexion à l'API et sauvegarde dans le localStorage
+    document.getElementById('authForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      apiUrl = document.getElementById('apiUrlInput').value;
+      const email = document.getElementById('emailInput').value;
+      const password = document.getElementById('passwordInput').value;
+
+      const saveLogin = document.getElementById('saveLogin').checked;
+
+      try {
+        const response = await fetch(`${apiUrl}/api/auth/local`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ identifier: email, password: password }),
+        });
+
+        const data = await response.json();
+        if (response.ok) {
+          authToken = data.jwt;
+
+          // Sauvegarder dans le localStorage si l'option est cochée
+          if (saveLogin) {
+            localStorage.setItem('apiUrl', apiUrl);
+            localStorage.setItem('email', email);
+            localStorage.setItem('password', password);
+            localStorage.setItem('authToken', authToken);
+          }
+
+          authSection.classList.add('hidden');
+          mainContent.classList.remove('hidden');
+        } else {
+          alert('Erreur de connexion');
+        }
+      } catch (error) {
+        alert('Erreur de connexion');
+      }
+    });
+
+    // Fonction pour déconnexion
+    function logout() {
+      localStorage.removeItem('apiUrl');
+      localStorage.removeItem('email');
+      localStorage.removeItem('password');
+      localStorage.removeItem('authToken');
+      authSection.classList.remove('hidden');
+      mainContent.classList.add('hidden');
+    }
+
+    // Requête pour récupérer un rapport par ID
+    async function fetchReport(id) {
+      try {
+        const res = await fetch(`${apiUrl}/api/get-reporting/${id}`, {
+          headers: {
+            'Authorization': `Bearer ${authToken}`,
+            'Accept': 'application/json',
+          }
+        });
+        if (!res.ok) throw new Error('Not found');
+        return await res.json();
+      } catch {
+        return null;
+      }
+    }
+
+    // Affichage d'un rapport
+    function displayReport(report) {
+      const container = document.getElementById('reportsContainer');
+      const html = `
+        <div class="bg-white p-6 rounded shadow">
+          <h2 class="text-xl font-bold mb-2">Rapport ID: ${report.id}</h2>
+          <p class="text-gray-600 mb-1">Créé à: ${new Date(report.createdAt).toLocaleString()}</p>
+          <p class="text-gray-500 mb-4">Projet: ${report.projet?.Nom ?? 'Inconnu'}</p>
+          <div class="prose max-w-none">${report.Descriptions}</div>
+        </div>`;
+      container.innerHTML += html;  // Ajout au lieu de remplacement
+    }
+
+    // Recherche du rapport le plus récent avec le théorème de la valeur intermédiaire
+    async function fetchLatestReport() {
+      const container = document.getElementById('reportsContainer');
+      const loadingSpinner = document.getElementById('loadingSpinner');
+
+      // Afficher le spinner de chargement
+      loadingSpinner.classList.remove('hidden');
+
+      let left = 1;
+      let right = 10000; // Cette valeur peut être ajustée selon le nombre maximum de rapports
+      let report = null;
+
+      // Recherche binaire pour le rapport le plus récent
+      while (left <= right) {
+        const mid = Math.floor((left + right) / 2);
+        const fetchedReport = await fetchReport(mid);
+
+        if (fetchedReport) {
+          report = fetchedReport;
+          left = mid + 1; // Chercher à droite (rapports plus récents)
+        } else {
+          right = mid - 1; // Chercher à gauche (rapports plus anciens)
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 50)); // Délai pour éviter les requêtes trop rapides
+      }
+
+      // Masquer le spinner de chargement après la recherche
+      loadingSpinner.classList.add('hidden');
+
+      if (report) {
+        container.innerHTML = ''; // Effacer les anciens rapports avant d'afficher celui-ci
+        displayReport(report);
+      } else {
+        container.innerHTML = '<p class="text-red-600">Aucun rapport trouvé.</p>';
+      }
+    }
+
+    // Fonction pour afficher tous les rapports un par un, en commençant par le plus récent et en décrémentant
+    async function fetchAllReports() {
+      const container = document.getElementById('reportsContainer');
+      const loadingSpinner = document.getElementById('loadingSpinner');
+
+      // Afficher le spinner de chargement
+      loadingSpinner.classList.remove('hidden');
+
+      let left = 1;
+      let right = 10000; // Valeur max à ajuster
+      let report;
+
+      container.innerHTML = ''; // Effacer les anciens rapports avant d'afficher de nouveaux
+
+      // Recherche du rapport le plus récent (basé sur la valeur intermédiaire)
+      let latestReport = null;
+      while (left <= right) {
+        const mid = Math.floor((left + right) / 2);
+        const fetchedReport = await fetchReport(mid);
+
+        if (fetchedReport) {
+          latestReport = fetchedReport;
+          left = mid + 1; // Chercher à droite pour des rapports plus récents
+        } else {
+          right = mid - 1; // Chercher à gauche pour des rapports plus anciens
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 500)); // Délai pour afficher chaque rapport progressivement
+      }
+
+      // Si un rapport le plus récent est trouvé, on commence à les afficher progressivement
+      if (latestReport) {
+        let currentId = latestReport.id;
+        while (currentId >= 1) {
+          const report = await fetchReport(currentId);
+          if (report) displayReport(report);
+          currentId--;
+          await new Promise(resolve => setTimeout(resolve, 500)); // Attendre un peu entre les affichages des rapports
+        }
+      }
+
+      loadingSpinner.classList.add('hidden');
+    }
+
+    document.getElementById('reportForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const id = parseInt(document.getElementById('reportIdInput').value);
+      await fetchReport(id);
+    });
+  </script>
+
+</body>
+
+</html>
